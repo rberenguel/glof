@@ -1,5 +1,6 @@
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
+const MASTER_SEED = 42;
 const holeNumberEl = document.getElementById("hole-number");
 const strokesEl = document.getElementById("strokes");
 const totalStrokesEl = document.getElementById("total-strokes");
@@ -17,6 +18,7 @@ const HOLE_DEPTH = 20;
 
 let gameWidth, gameHeight;
 let ball, terrain, hole, waterHazards, particles, cacti;
+let backgroundCanvas, backgroundCtx;
 let lastBallPosition = { x: 0, y: 0 };
 let lastFrameTime = 0;
 
@@ -24,9 +26,20 @@ let gameState = "AIMING";
 let strokes = 0;
 let totalStrokes = 0;
 let holeNumber = 1;
-let levelSeed = Math.random();
 let aimStartPos = null;
 let currentAimPos = null;
+
+// Creates a seeded pseudo-random number generator.
+function createSeededRandom(seed) {
+  let state = seed;
+  return function () {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 class Ball {
   constructor(x, y) {
@@ -45,18 +58,21 @@ class Ball {
 }
 
 function generateLevel() {
+  // Create a single random generator for this level, seeded by our master seed and the hole number.
+  const random = createSeededRandom(MASTER_SEED + holeNumber);
+
   terrain = [];
   waterHazards = [];
   particles = [];
   cacti = [];
 
-  const segments = 8 + Math.floor(levelSeed * 6);
-  let lastY = gameHeight * (0.6 + ((levelSeed * 10) % 1) * 0.2);
+  const segments = 8 + Math.floor(random() * 6);
+  let lastY = gameHeight * (0.6 + random() * 0.2);
   terrain.push({ x: 0, y: lastY });
 
   for (let i = 1; i < segments; i++) {
-    const x = (i / segments) * gameWidth + (Math.random() - 0.5) * 50;
-    const y = lastY + (Math.random() - 0.5) * gameHeight * 0.4;
+    const x = (i / segments) * gameWidth + (random() - 0.5) * 50;
+    const y = lastY + (random() - 0.5) * gameHeight * 0.4;
     lastY = y;
     terrain.push({
       x: x,
@@ -77,9 +93,7 @@ function generateLevel() {
 
   const segmentIndex =
     flatEnoughSegments.length > 0
-      ? flatEnoughSegments[
-          Math.floor(Math.random() * flatEnoughSegments.length)
-        ]
+      ? flatEnoughSegments[Math.floor(random() * flatEnoughSegments.length)]
       : Math.floor(segments / 2) + 1;
 
   if (segmentIndex > 0 && segmentIndex < terrain.length - 2) {
@@ -97,7 +111,7 @@ function generateLevel() {
   const p1_hole = terrain[segmentIndex];
   const p2_hole = terrain[segmentIndex + 1];
   const segWidth = p2_hole.x - p1_hole.x;
-  const holeX = p1_hole.x + segWidth * 0.2 + Math.random() * (segWidth * 0.6);
+  const holeX = p1_hole.x + segWidth * 0.2 + random() * (segWidth * 0.6);
   hole = {
     x: holeX,
     y: getTerrainY(holeX),
@@ -106,24 +120,23 @@ function generateLevel() {
   };
 
   const startX = gameWidth * 0.1;
-  const startSegmentIndex = terrain.findIndex((p) => p.x > startX) - 1;
 
-  if (holeNumber > 1 && Math.random() < 0.45) {
+  if (holeNumber > 1 && random() < 0.45) {
     const potentialIndices = [];
     for (let i = 1; i < terrain.length - 2; i++) {
       if (
         i !== segmentIndex &&
         i !== segmentIndex - 1 &&
         i !== segmentIndex + 1 &&
-        i !== startSegmentIndex &&
-        i !== startSegmentIndex - 1
+        i !== terrain.findIndex((p) => p.x > startX) - 1 &&
+        i !== terrain.findIndex((p) => p.x > startX) - 2
       ) {
         potentialIndices.push(i);
       }
     }
     if (potentialIndices.length > 0) {
       const hazardIndex =
-        potentialIndices[Math.floor(Math.random() * potentialIndices.length)];
+        potentialIndices[Math.floor(random() * potentialIndices.length)];
       const p1 = terrain[hazardIndex];
       const p2 = terrain[hazardIndex + 1];
       const waterY = Math.max(p1.y, p2.y);
@@ -132,54 +145,61 @@ function generateLevel() {
       waterHazards.push({ x1: p1.x, x2: p2.x, y: waterY });
     }
   }
-  // ** Replace the existing cactus generation logic with this block **
-  const flatSegments = [];
+
+  const flatSegmentsForCacti = [];
   for (let i = 0; i < terrain.length - 1; i++) {
     const p1 = terrain[i];
     const p2 = terrain[i + 1];
     if (p1.y === p2.y && p2.x - p1.x > 50) {
-      flatSegments.push({ startX: p1.x, endX: p2.x, y: p1.y });
+      flatSegmentsForCacti.push({ startX: p1.x, endX: p2.x, y: p1.y });
     }
   }
 
-  if (flatSegments.length > 0) {
-    const numCacti = 5 + Math.floor(Math.random() * 5);
-    let placedCacti = 0;
-    let attempts = 0; // Failsafe to prevent infinite loops
-    while (placedCacti < numCacti && attempts < 100) {
-      attempts++;
-      const segment =
-        flatSegments[Math.floor(Math.random() * flatSegments.length)];
+  if (flatSegmentsForCacti.length > 0) {
+    let numCacti = 0;
+    const cactusRarityRoll = random();
+    if (cactusRarityRoll > 0.999) {
+      //  0.01% chance of two cacti
+      numCacti = 2;
+    } else if (cactusRarityRoll > 0.99) {
+      // 1% chance of one cactus
+      numCacti = 1;
+    }
 
-      const segmentWidth = segment.endX - segment.startX;
-      const x = segment.startX + Math.random() * segmentWidth;
-      const y = segment.y;
+    if (numCacti > 0 && flatSegmentsForCacti.length > 0) {
+      let placedCacti = 0;
+      let attempts = 0;
+      while (placedCacti < numCacti && attempts < 100) {
+        attempts++;
+        const segment =
+          flatSegmentsForCacti[
+            Math.floor(random() * flatSegmentsForCacti.length)
+          ];
+        const segmentWidth = segment.endX - segment.startX;
+        const x = segment.startX + random() * segmentWidth;
+        const y = segment.y;
 
-      if (Math.abs(x - hole.x) < 50 || x < 100) {
-        continue;
-      }
+        if (Math.abs(x - hole.x) < 50 || x < 100) continue;
 
-      // Check if the cactus is in a water hazard
-      let isInWater = false;
-      for (const water of waterHazards) {
-        if (x > water.x1 && x < water.x2) {
-          isInWater = true;
-          break;
+        let isInWater = false;
+        for (const water of waterHazards) {
+          if (x > water.x1 && x < water.x2) {
+            isInWater = true;
+            break;
+          }
         }
-      }
-      if (isInWater) {
-        continue;
-      }
+        if (isInWater) continue;
 
-      // If all checks pass, place the cactus
-      placedCacti++;
-      const scale = 0.5 + Math.random() * 0.7;
-      const shade = 80 + Math.floor(scale * 100);
-      const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
-      cacti.push({ x, y, scale, color, seed: Math.floor(x) });
+        placedCacti++;
+        const scale = 0.5 + random() * 0.7;
+        const shade = 80 + Math.floor(scale * 100);
+        const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
+        cacti.push({ x, y, scale, color, seed: Math.floor(random() * 100000) });
+      }
+      cacti.sort((a, b) => a.scale - b.scale);
     }
-    cacti.sort((a, b) => a.scale - b.scale);
   }
+  drawBackgroundLayer();
   ball = new Ball(startX, getTerrainY(startX) - BALL_RADIUS);
   lastBallPosition = { x: ball.x, y: ball.y };
   strokes = 0;
@@ -206,7 +226,66 @@ function resizeCanvas() {
   canvas.height = newHeight;
   gameWidth = newWidth;
   gameHeight = newHeight;
+
+  // Create or resize the off-screen canvas to match the visible one
+  if (!backgroundCanvas) {
+    backgroundCanvas = document.createElement("canvas");
+    backgroundCtx = backgroundCanvas.getContext("2d");
+  }
+  backgroundCanvas.width = newWidth;
+  backgroundCanvas.height = newHeight;
+
   generateLevel();
+}
+
+function drawBackgroundLayer() {
+  // Draw Sky
+  const sky = backgroundCtx.createLinearGradient(0, 0, 0, gameHeight * 0.8);
+  sky.addColorStop(0, "#87CEEB");
+  sky.addColorStop(1, "#FAD7A0");
+  backgroundCtx.fillStyle = sky;
+  backgroundCtx.fillRect(0, 0, gameWidth, gameHeight);
+
+  // Draw Cacti
+  for (const cactus of cacti) {
+    drawSaguaro(
+      backgroundCtx,
+      cactus.x,
+      cactus.y,
+      cactus.scale,
+      cactus.color,
+      cactus.seed,
+    );
+  }
+
+  // Draw Hole
+  backgroundCtx.fillStyle = "black";
+  backgroundCtx.fillRect(hole.x, hole.y, hole.width, hole.depth);
+
+  // Draw Terrain
+  backgroundCtx.beginPath();
+  backgroundCtx.moveTo(0, gameHeight);
+  backgroundCtx.lineTo(0, terrain[0].y);
+  for (let i = 0; i < terrain.length; i++) {
+    const p = terrain[i];
+    if (i > 0 && p.x > hole.x && terrain[i - 1].x < hole.x) {
+      backgroundCtx.lineTo(hole.x, hole.y);
+      backgroundCtx.lineTo(hole.x, hole.y + hole.depth);
+      backgroundCtx.lineTo(hole.x + hole.width, hole.y + hole.depth);
+      backgroundCtx.lineTo(hole.x + hole.width, hole.y);
+    }
+    backgroundCtx.lineTo(p.x, p.y);
+  }
+  backgroundCtx.lineTo(gameWidth, gameHeight);
+  backgroundCtx.closePath();
+  backgroundCtx.fillStyle = "#c2b280";
+  backgroundCtx.fill();
+
+  // Draw Water
+  backgroundCtx.fillStyle = "rgba(65, 105, 225, 0.9)";
+  for (const water of waterHazards) {
+    backgroundCtx.fillRect(water.x1, water.y, water.x2 - water.x1, gameHeight);
+  }
 }
 
 function createSplash(x, y) {
@@ -297,7 +376,6 @@ function startNextLevel() {
   transitionOverlay.style.opacity = 1;
   setTimeout(() => {
     holeNumber++;
-    levelSeed = Math.random();
     generateLevel();
     updateUI();
     transitionOverlay.style.opacity = 0;
@@ -332,50 +410,10 @@ function updateAndDrawParticles() {
 }
 
 function drawScene() {
-  const sky = ctx.createLinearGradient(0, 0, 0, gameHeight * 0.8);
-  sky.addColorStop(0, "#87CEEB");
-  sky.addColorStop(1, "#FAD7A0");
-  ctx.fillStyle = sky;
-  ctx.fillRect(0, 0, gameWidth, gameHeight);
+  // 1. Slap the pre-rendered background onto the canvas in one fast operation.
+  ctx.drawImage(backgroundCanvas, 0, 0);
 
-  for (const cactus of cacti) {
-    drawSaguaro(
-      ctx,
-      cactus.x,
-      cactus.y,
-      cactus.scale,
-      cactus.color,
-      cactus.seed,
-    );
-  }
-
-  ctx.fillStyle = "black";
-  ctx.fillRect(hole.x, hole.y, hole.width, hole.depth);
-
-  ctx.beginPath();
-  ctx.moveTo(0, gameHeight);
-  ctx.lineTo(0, terrain[0].y);
-
-  for (let i = 0; i < terrain.length; i++) {
-    const p = terrain[i];
-    if (i > 0 && p.x > hole.x && terrain[i - 1].x < hole.x) {
-      ctx.lineTo(hole.x, hole.y);
-      ctx.lineTo(hole.x, hole.y + hole.depth);
-      ctx.lineTo(hole.x + hole.width, hole.y + hole.depth);
-      ctx.lineTo(hole.x + hole.width, hole.y);
-    }
-    ctx.lineTo(p.x, p.y);
-  }
-  ctx.lineTo(gameWidth, gameHeight);
-  ctx.closePath();
-  ctx.fillStyle = "#c2b280";
-  ctx.fill();
-
-  ctx.fillStyle = "rgba(65, 105, 225, 0.9)";
-  for (const water of waterHazards) {
-    ctx.fillRect(water.x1, water.y, water.x2 - water.x1, gameHeight);
-  }
-
+  // 2. Draw the dynamic elements on top.
   updateAndDrawParticles();
   ball.draw();
   drawAimIndicator();
@@ -548,12 +586,7 @@ function handleEnd(event) {
 }
 
 function drawSaguaro(ctx, x, y, scale, color = "#4a6341", seed = 1) {
-  const random = () => {
-    let t = (seed += 0x6d2b79f5);
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  const random = createSeededRandom(seed);
 
   ctx.save();
   ctx.translate(x, y);

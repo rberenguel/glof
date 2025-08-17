@@ -2,7 +2,7 @@ body {
   margin: 0;
   padding: 0;
   background-color: #1a1a1a;
-  font-family: "Courier New", Courier, monospace;
+  font-family: "Monoid", Courier, monospace;
   overflow: hidden;
   display: flex;
   justify-content: center;
@@ -23,7 +23,6 @@ canvas {
   display: block;
   cursor: crosshair;
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
-  border-radius: 15px;
 }
 #info-panel {
   position: absolute;
