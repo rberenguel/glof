@@ -23,13 +23,13 @@ const AIR_FRICTION = 0.995;
 const GROUND_FRICTION = 0.99;
 const BOUNCE_DAMPING = 0.55;
 const POWER_MULTIPLIER = 0.09;
-const MAX_POWER = 22;
+const MAX_DRAG_RATIO = 0.15; // fraction of canvas width
 const BALL_RADIUS = 3;
 const HOLE_WIDTH = 16;
 const HOLE_DEPTH = 20;
 
 let gameWidth, gameHeight;
-let ball, terrain, hole, waterHazards, particles, cacti;
+let ball, terrain, hole, waterHazards, particles, cacti, boulders, deadTrees, mesas;
 let backgroundCanvas, backgroundCtx;
 let lastBallPosition = { x: 0, y: 0 };
 let lastFrameTime = 0;
@@ -80,6 +80,9 @@ function generateLevel() {
   waterHazards = [];
   particles = [];
   cacti = [];
+  boulders = [];
+  deadTrees = [];
+  mesas = [];
 
   const segments = 8 + Math.floor(random() * 6);
   let lastY = gameHeight * (0.7 + random() * 0.2);
@@ -180,6 +183,62 @@ function generateLevel() {
     cacti.push({ x, y, scale, color, seed: MASTER_SEED + holeNumber * 137 });
   }
   }
+
+  // Boulder placement — flat segments only
+  const flatForBoulders = [];
+  for (let i = 0; i < terrain.length - 1; i++) {
+    const p1 = terrain[i], p2 = terrain[i + 1];
+    if (Math.abs(p2.y - p1.y) < 6 && p2.x - p1.x > 40) {
+      flatForBoulders.push(p1);
+    }
+  }
+  const boulderRng = createSeededRandom(MASTER_SEED + holeNumber + 2000);
+  if (flatForBoulders.length > 0 && boulderRng() < 0.015) {
+    let boulderAttempts = 0;
+    while (boulders.length === 0 && boulderAttempts < 50) {
+      boulderAttempts++;
+      const seg = flatForBoulders[Math.floor(boulderRng() * flatForBoulders.length)];
+      const x = seg.x + boulderRng() * (terrain[terrain.indexOf(seg) + 1].x - seg.x);
+      if (Math.abs(x - hole.x) < 50 || Math.abs(x - startX) < 60) continue;
+      let isInWater = false;
+      for (const w of waterHazards) {
+        if (x > w.x1 - 15 && x < w.x2 + 15) { isInWater = true; break; }
+      }
+      if (isInWater) continue;
+      const scale = 0.3 + boulderRng() * 0.4;
+      boulders.push({ x, y: getTerrainY(x), scale, seed: MASTER_SEED + holeNumber * 97 });
+    }
+  }
+
+  // Dead tree placement
+  const treeRng = createSeededRandom(MASTER_SEED + holeNumber + 3000);
+  if (treeRng() < 0.005) {
+  let treeAttempts = 0;
+  while (deadTrees.length === 0 && treeAttempts < 50) {
+    treeAttempts++;
+    const x = gameWidth * (0.1 + treeRng() * 0.8);
+    if (Math.abs(x - hole.x) < 50 || Math.abs(x - startX) < 60) continue;
+    if (boulders.length > 0 && Math.abs(x - boulders[0].x) < 60) continue;
+    let isInWater = false;
+    for (const w of waterHazards) {
+      if (x > w.x1 - 15 && x < w.x2 + 15) { isInWater = true; break; }
+    }
+    if (isInWater) continue;
+    const scale = 0.4 + treeRng() * 0.5;
+    deadTrees.push({ x, y: getTerrainY(x), scale, seed: MASTER_SEED + holeNumber * 113 });
+  }
+  }
+
+  // Mesa placement
+  const mesaRng = createSeededRandom(MASTER_SEED + holeNumber + 4000);
+  if (mesaRng() < 0.015) mesas.push({
+    x: gameWidth * (0.2 + mesaRng() * 0.6),
+    topY: gameHeight * (0.38 + mesaRng() * 0.15),
+    width: gameWidth * (0.25 + mesaRng() * 0.25),
+    height: gameHeight * (0.12 + mesaRng() * 0.08),
+    seed: MASTER_SEED + holeNumber * 71,
+  });
+
   drawBackgroundLayer();
   ball = new Ball(startX, getTerrainY(startX) - BALL_RADIUS);
   lastBallPosition = { x: ball.x, y: ball.y };
@@ -218,6 +277,100 @@ function resizeCanvas() {
   generateLevel();
 }
 
+function drawBoulder(ctx, x, y, scale, seed) {
+  const rng = createSeededRandom(seed);
+  ctx.save();
+  ctx.globalAlpha = 1.0;
+  const numPts = 7 + Math.floor(rng() * 3);
+  const rx = (10 + rng() * 7) * scale;
+  const ry = rx * (0.52 + rng() * 0.2);
+  const cx = x;
+  const cy = y - ry * 0.4;
+  const pts = [];
+  for (let i = 0; i < numPts; i++) {
+    const angle = (i / numPts) * Math.PI * 2 - Math.PI / 2;
+    const r = 0.78 + rng() * 0.44;
+    pts.push({ x: cx + Math.cos(angle) * rx * r, y: cy + Math.sin(angle) * ry * r });
+  }
+  // Washed-out sandy tone to blend with background
+  const base = 118 + Math.floor(rng() * 22);
+  ctx.fillStyle = `rgb(${base + 5}, ${base - 3}, ${base - 14})`;
+  ctx.beginPath();
+  const start = { x: (pts[0].x + pts[numPts - 1].x) / 2, y: (pts[0].y + pts[numPts - 1].y) / 2 };
+  ctx.moveTo(start.x, start.y);
+  for (let i = 0; i < numPts; i++) {
+    const next = pts[(i + 1) % numPts];
+    ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + next.x) / 2, (pts[i].y + next.y) / 2);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMesa(ctx, x, topY, width, height, seed) {
+  const rng = createSeededRandom(seed);
+  ctx.save();
+  ctx.globalAlpha = 0.09 + rng() * 0.05;
+  const rv = 160 + Math.floor(rng() * 18);
+  const gv = 148 + Math.floor(rng() * 14);
+  const bv = 165 + Math.floor(rng() * 18);
+  ctx.fillStyle = `rgb(${rv}, ${gv}, ${bv})`;
+  // Sides splay outward toward canvas bottom
+  const splay = width * 0.5;
+  // Slightly uneven top
+  const topPts = [{ x: x - width / 2, y: topY }];
+  const steps = 2 + Math.floor(rng() * 3);
+  for (let i = 1; i < steps; i++) {
+    topPts.push({ x: x - width / 2 + (width * i) / steps, y: topY + rng() * height * 0.07 });
+  }
+  topPts.push({ x: x + width / 2, y: topY });
+  ctx.beginPath();
+  // Base spans full canvas height so it's rooted to the ground
+  ctx.moveTo(x - width / 2 - splay, ctx.canvas.height);
+  ctx.lineTo(topPts[0].x, topPts[0].y);
+  for (let i = 1; i < topPts.length; i++) ctx.lineTo(topPts[i].x, topPts[i].y);
+  ctx.lineTo(x + width / 2 + splay, ctx.canvas.height);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawDeadTree(ctx, x, y, scale, seed) {
+  const rng = createSeededRandom(seed);
+  ctx.save();
+  const b = 58 + Math.floor(rng() * 28);
+  ctx.strokeStyle = `rgb(${b + 22}, ${b}, ${b - 18})`;
+  ctx.lineCap = "round";
+  function branch(bx, by, angle, len, width, depth) {
+    if (depth === 0 || len < 1.5) return;
+    const ex = bx + Math.cos(angle) * len * scale;
+    const ey = by + Math.sin(angle) * len * scale;
+    ctx.lineWidth = Math.max(0.5, width);
+    ctx.beginPath();
+    ctx.moveTo(bx, by);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+    const r = rng();
+    if (r < 0.15) {
+      // single continuation — bent
+      branch(ex, ey, angle + (rng() - 0.5) * 0.7, len * (0.55 + rng() * 0.2), width * 0.72, depth - 1);
+    } else if (r < 0.75) {
+      // two branches — asymmetric spreads
+      branch(ex, ey, angle - (0.28 + rng() * 0.55), len * (0.45 + rng() * 0.28), width * 0.6, depth - 1);
+      branch(ex, ey, angle + (0.22 + rng() * 0.55), len * (0.42 + rng() * 0.28), width * 0.58, depth - 1);
+    } else {
+      // three branches
+      const s = 0.32 + rng() * 0.28;
+      branch(ex, ey, angle - s - rng() * 0.2, len * (0.38 + rng() * 0.22), width * 0.55, depth - 1);
+      branch(ex, ey, angle + (rng() - 0.5) * 0.35, len * (0.42 + rng() * 0.2), width * 0.55, depth - 1);
+      branch(ex, ey, angle + s + rng() * 0.2, len * (0.38 + rng() * 0.22), width * 0.52, depth - 1);
+    }
+  }
+  const lean = (rng() - 0.5) * 0.28;
+  branch(x, y, -Math.PI / 2 + lean, 28 + rng() * 14, 2.5 * scale, 4);
+  ctx.restore();
+}
+
 function drawBackgroundLayer() {
   // Draw Sky
   const sky = backgroundCtx.createLinearGradient(0, 0, 0, gameHeight * 0.8);
@@ -225,6 +378,15 @@ function drawBackgroundLayer() {
   sky.addColorStop(1, "#FAD7A0");
   backgroundCtx.fillStyle = sky;
   backgroundCtx.fillRect(0, 0, gameWidth, gameHeight);
+
+  // Draw Mesas
+  for (const m of mesas) drawMesa(backgroundCtx, m.x, m.topY, m.width, m.height, m.seed);
+
+  // Draw Boulders
+  for (const b of boulders) drawBoulder(backgroundCtx, b.x, b.y, b.scale, b.seed);
+
+  // Draw Dead Trees
+  for (const t of deadTrees) drawDeadTree(backgroundCtx, t.x, t.y, t.scale, t.seed);
 
   // Draw Cacti
   for (const cactus of cacti) {
@@ -403,8 +565,7 @@ async function saveState({ includeBall = false } = {}) {
   await set("glof", {
     holeNumber, totalStrokes, holesInOne, strokes,
     ballsInWater, ballsOutOfBounds,
-    ballX: includeBall ? ball.x : null,
-    ballY: includeBall ? ball.y : null,
+    ballX: includeBall ? ball.x / gameWidth : null,
   });
 }
 
@@ -416,7 +577,7 @@ async function loadState() {
   holesInOne = saved.holesInOne || 0;
   ballsInWater = saved.ballsInWater || 0;
   ballsOutOfBounds = saved.ballsOutOfBounds || 0;
-  return { strokes: saved.strokes || 0, ballX: saved.ballX, ballY: saved.ballY };
+  return { strokes: saved.strokes || 0, ballNX: saved.ballX };
 }
 
 function showMenu() {
@@ -482,7 +643,8 @@ function drawAimIndicator() {
   if (dist < 10) return;
 
   const angle = Math.atan2(dy, dx);
-  const power = Math.min(dist, 100);
+  const maxDrag = gameWidth * MAX_DRAG_RATIO;
+  const arrowLen = Math.min(dist, maxDrag);
 
   ctx.save();
   ctx.translate(ball.x, ball.y);
@@ -493,12 +655,12 @@ function drawAimIndicator() {
 
   ctx.beginPath();
   ctx.moveTo(ball.radius + 5, 0);
-  ctx.lineTo(ball.radius + 5 + power, 0);
+  ctx.lineTo(ball.radius + 5 + arrowLen, 0);
   ctx.stroke();
   ctx.beginPath();
-  ctx.moveTo(ball.radius + 5 + power, 0);
-  ctx.lineTo(ball.radius + power, -5);
-  ctx.lineTo(ball.radius + power, 5);
+  ctx.moveTo(ball.radius + 5 + arrowLen, 0);
+  ctx.lineTo(ball.radius + arrowLen, -5);
+  ctx.lineTo(ball.radius + arrowLen, 5);
   ctx.closePath();
   ctx.fill();
   ctx.restore();
@@ -639,7 +801,8 @@ function handleEnd(event) {
   totalStrokes++;
   updateUI();
   lastBallPosition = { x: ball.x, y: ball.y };
-  const power = Math.min(dist * POWER_MULTIPLIER, MAX_POWER);
+  const maxDrag = gameWidth * MAX_DRAG_RATIO;
+  const power = Math.min(dist, maxDrag) * POWER_MULTIPLIER;
   const angle = Math.atan2(dy, dx);
   ball.vx = -Math.cos(angle) * power;
   ball.vy = -Math.sin(angle) * power;
@@ -710,9 +873,9 @@ window.addEventListener("resize", resizeCanvas);
 loadState().then((saved) => {
   initHaptic();
   resizeCanvas();
-  if (saved?.ballX != null) {
-    ball.x = saved.ballX;
-    ball.y = saved.ballY;
+  if (saved?.ballNX != null) {
+    ball.x = saved.ballNX * gameWidth;
+    ball.y = getTerrainY(ball.x) - BALL_RADIUS;
     strokes = saved.strokes;
   }
   updateUI();
