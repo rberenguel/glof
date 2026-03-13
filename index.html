@@ -15,14 +15,27 @@
   <body>
     <div id="game-container">
       <div id="info-panel">
-        <span id="hole-number">Hole: 1</span> |
-        <span id="strokes">Strokes: 0</span> |
-        <span id="total-strokes">Total: 0</span>
+        <span id="strokes">0</span> | <span id="total-strokes">0</span>
       </div>
       <canvas id="gameCanvas"></canvas>
       <div id="transition-overlay"></div>
     </div>
+    <div id="orientation-warning">
+      <p id="orientation-title">glof</p>
+      <p>rotate device</p>
+    </div>
 
-    <script src="glof.js"></script>
+    <div id="menu-overlay">
+      <div id="menu">
+        <div id="menu-title">glof</div>
+        <hr/>
+        <p id="menu-hole"></p>
+        <p id="menu-total"></p>
+        <p id="menu-hio"></p>
+        <button id="menu-reset">reset progress</button>
+      </div>
+    </div>
+
+    <script type="module" src="glof.js"></script>
   </body>
 </html>

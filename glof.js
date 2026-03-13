@@ -1,7 +1,19 @@
+import { get, set } from "./idb-keyval.js";
+import { initHaptic, triggerHaptic, triggerHapticError } from "./haptic.js";
+
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
+const orientationWarning = document.getElementById("orientation-warning");
+const menuOverlay = document.getElementById("menu-overlay");
+
+function isMobile() {
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+function isLandscape() {
+  if (window.screen.orientation) return window.screen.orientation.type.includes("landscape");
+  return window.innerWidth > window.innerHeight;
+}
 const MASTER_SEED = 42;
-const holeNumberEl = document.getElementById("hole-number");
 const strokesEl = document.getElementById("strokes");
 const totalStrokesEl = document.getElementById("total-strokes");
 const transitionOverlay = document.getElementById("transition-overlay");
@@ -12,7 +24,7 @@ const GROUND_FRICTION = 0.99;
 const BOUNCE_DAMPING = 0.55;
 const POWER_MULTIPLIER = 0.09;
 const MAX_POWER = 22;
-const BALL_RADIUS = 5;
+const BALL_RADIUS = 3;
 const HOLE_WIDTH = 16;
 const HOLE_DEPTH = 20;
 
@@ -26,6 +38,7 @@ let gameState = "AIMING";
 let strokes = 0;
 let totalStrokes = 0;
 let holeNumber = 1;
+let holesInOne = 0;
 let aimStartPos = null;
 let currentAimPos = null;
 
@@ -67,7 +80,7 @@ function generateLevel() {
   cacti = [];
 
   const segments = 8 + Math.floor(random() * 6);
-  let lastY = gameHeight * (0.6 + random() * 0.2);
+  let lastY = gameHeight * (0.7 + random() * 0.2);
   terrain.push({ x: 0, y: lastY });
 
   for (let i = 1; i < segments; i++) {
@@ -76,7 +89,7 @@ function generateLevel() {
     lastY = y;
     terrain.push({
       x: x,
-      y: Math.max(gameHeight * 0.3, Math.min(gameHeight * 0.9, y)),
+      y: Math.max(gameHeight * 0.45, Math.min(gameHeight * 0.95, y)),
     });
   }
   terrain.push({ x: gameWidth, y: lastY });
@@ -142,62 +155,27 @@ function generateLevel() {
       const waterY = Math.max(p1.y, p2.y);
       terrain[hazardIndex].y = waterY;
       terrain[hazardIndex + 1].y = waterY;
-      waterHazards.push({ x1: p1.x, x2: p2.x, y: waterY });
+      waterHazards.push({ x1: p1.x, x2: p2.x, y: waterY + 6 });
     }
   }
 
-  const flatSegmentsForCacti = [];
-  for (let i = 0; i < terrain.length - 1; i++) {
-    const p1 = terrain[i];
-    const p2 = terrain[i + 1];
-    if (p1.y === p2.y && p2.x - p1.x > 50) {
-      flatSegmentsForCacti.push({ startX: p1.x, endX: p2.x, y: p1.y });
+  const cactusRng = createSeededRandom(MASTER_SEED + holeNumber + 1000);
+  if (cactusRng() < 0.01) {
+  let attempts = 0;
+  while (cacti.length === 0 && attempts < 50) {
+    attempts++;
+    const x = gameWidth * (0.15 + cactusRng() * 0.7);
+    if (Math.abs(x - hole.x) < 60 || Math.abs(x - startX) < 80) continue;
+    let isInWater = false;
+    for (const water of waterHazards) {
+      if (x > water.x1 - 20 && x < water.x2 + 20) { isInWater = true; break; }
     }
-  }
-
-  if (flatSegmentsForCacti.length > 0) {
-    let numCacti = 0;
-    const cactusRarityRoll = random();
-    if (cactusRarityRoll > 0.999) {
-      //  0.01% chance of two cacti
-      numCacti = 2;
-    } else if (cactusRarityRoll > 0.99) {
-      // 1% chance of one cactus
-      numCacti = 1;
-    }
-
-    if (numCacti > 0 && flatSegmentsForCacti.length > 0) {
-      let placedCacti = 0;
-      let attempts = 0;
-      while (placedCacti < numCacti && attempts < 100) {
-        attempts++;
-        const segment =
-          flatSegmentsForCacti[
-            Math.floor(random() * flatSegmentsForCacti.length)
-          ];
-        const segmentWidth = segment.endX - segment.startX;
-        const x = segment.startX + random() * segmentWidth;
-        const y = segment.y;
-
-        if (Math.abs(x - hole.x) < 50 || x < 100) continue;
-
-        let isInWater = false;
-        for (const water of waterHazards) {
-          if (x > water.x1 && x < water.x2) {
-            isInWater = true;
-            break;
-          }
-        }
-        if (isInWater) continue;
-
-        placedCacti++;
-        const scale = 0.5 + random() * 0.7;
-        const shade = 80 + Math.floor(scale * 100);
-        const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
-        cacti.push({ x, y, scale, color, seed: Math.floor(random() * 100000) });
-      }
-      cacti.sort((a, b) => a.scale - b.scale);
-    }
+    if (isInWater) continue;
+    const y = getTerrainY(x);
+    const scale = 0.4 + cactusRng() * 0.6;
+    const shade = 80 + Math.floor(scale * 80);
+    const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
+    cacti.push({ x, y, scale, color, seed: MASTER_SEED + holeNumber * 137 });
   }
   drawBackgroundLayer();
   ball = new Ball(startX, getTerrainY(startX) - BALL_RADIUS);
@@ -206,6 +184,8 @@ function generateLevel() {
 }
 
 function getTerrainY(x) {
+  const water = waterHazards.find((w) => x > w.x1 && x < w.x2);
+  if (water) return water.y;
   if (x <= terrain[0].x) return terrain[0].y;
   if (x >= terrain[terrain.length - 1].x) return terrain[terrain.length - 1].y;
   const p1 = terrain.findLast((p) => p.x <= x);
@@ -217,11 +197,8 @@ function getTerrainY(x) {
 
 function resizeCanvas() {
   const container = document.getElementById("game-container");
-  const aspectRatio = 16 / 9;
   let newWidth = container.clientWidth;
   let newHeight = container.clientHeight;
-  if (newWidth / newHeight > aspectRatio) newWidth = newHeight * aspectRatio;
-  else newHeight = newWidth / aspectRatio;
   canvas.width = newWidth;
   canvas.height = newHeight;
   gameWidth = newWidth;
@@ -258,10 +235,6 @@ function drawBackgroundLayer() {
     );
   }
 
-  // Draw Hole
-  backgroundCtx.fillStyle = "black";
-  backgroundCtx.fillRect(hole.x, hole.y, hole.width, hole.depth);
-
   // Draw Terrain
   backgroundCtx.beginPath();
   backgroundCtx.moveTo(0, gameHeight);
@@ -275,6 +248,12 @@ function drawBackgroundLayer() {
       backgroundCtx.lineTo(hole.x + hole.width, hole.y);
     }
     backgroundCtx.lineTo(p.x, p.y);
+    const water = waterHazards.find((w) => w.x1 === p.x);
+    if (water) {
+      backgroundCtx.lineTo(p.x, water.y);
+      backgroundCtx.lineTo(water.x2, water.y);
+      backgroundCtx.lineTo(water.x2, p.y);
+    }
   }
   backgroundCtx.lineTo(gameWidth, gameHeight);
   backgroundCtx.closePath();
@@ -286,6 +265,30 @@ function drawBackgroundLayer() {
   for (const water of waterHazards) {
     backgroundCtx.fillRect(water.x1, water.y, water.x2 - water.x1, gameHeight);
   }
+
+  // Draw Flag
+  const poleX = hole.x + hole.width + 2;
+  const poleTop = hole.y - 36;
+  const flagW = 16;
+  const flagH = 10;
+  backgroundCtx.beginPath();
+  backgroundCtx.moveTo(poleX, hole.y);
+  backgroundCtx.lineTo(poleX, poleTop);
+  backgroundCtx.strokeStyle = "#5a3e28";
+  backgroundCtx.lineWidth = 1.5;
+  backgroundCtx.stroke();
+  backgroundCtx.beginPath();
+  backgroundCtx.moveTo(poleX, poleTop);
+  backgroundCtx.lineTo(poleX + flagW, poleTop + flagH / 2);
+  backgroundCtx.lineTo(poleX, poleTop + flagH);
+  backgroundCtx.closePath();
+  backgroundCtx.fillStyle = "#c0392b";
+  backgroundCtx.fill();
+  backgroundCtx.fillStyle = "#f0e8d8";
+  backgroundCtx.font = `bold ${Math.round(flagH * 0.75)}px Monoid, monospace`;
+  backgroundCtx.textAlign = "center";
+  backgroundCtx.textBaseline = "middle";
+  backgroundCtx.fillText(holeNumber, poleX + flagW * 0.35, poleTop + flagH / 2);
 }
 
 function createSplash(x, y) {
@@ -315,6 +318,7 @@ function applyPenaltyAndReset() {
   ball.vx = 0;
   ball.vy = 0;
   gameState = "AIMING";
+  saveState({ includeBall: true });
 }
 
 function handleCollisions() {
@@ -337,6 +341,7 @@ function handleCollisions() {
   ) {
     const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
     if (speed < 8) {
+      if (strokes === 1) holesInOne++;
       gameState = "IN_HOLE";
       return;
     }
@@ -376,6 +381,7 @@ function startNextLevel() {
   transitionOverlay.style.opacity = 1;
   setTimeout(() => {
     holeNumber++;
+    saveState();
     generateLevel();
     updateUI();
     transitionOverlay.style.opacity = 0;
@@ -384,10 +390,49 @@ function startNextLevel() {
 }
 
 function updateUI() {
-  holeNumberEl.textContent = `Hole: ${holeNumber}`;
-  strokesEl.textContent = `Strokes: ${strokes}`;
-  totalStrokesEl.textContent = `Total: ${totalStrokes}`;
+  strokesEl.textContent = strokes;
+  totalStrokesEl.textContent = totalStrokes;
 }
+
+async function saveState({ includeBall = false } = {}) {
+  await set("glof", {
+    holeNumber, totalStrokes, holesInOne, strokes,
+    ballX: includeBall ? ball.x : null,
+    ballY: includeBall ? ball.y : null,
+  });
+}
+
+async function loadState() {
+  const saved = await get("glof");
+  if (!saved) return null;
+  holeNumber = saved.holeNumber || 1;
+  totalStrokes = saved.totalStrokes || 0;
+  holesInOne = saved.holesInOne || 0;
+  return { strokes: saved.strokes || 0, ballX: saved.ballX, ballY: saved.ballY };
+}
+
+function showMenu() {
+  document.getElementById("menu-hole").textContent = `hole ${holeNumber}`;
+  document.getElementById("menu-total").textContent = `total strokes: ${totalStrokes}`;
+  document.getElementById("menu-hio").textContent = `holes in one: ${holesInOne}`;
+  menuOverlay.style.display = "flex";
+}
+
+document.getElementById("info-panel").addEventListener("click", () => {
+  triggerHaptic();
+  showMenu();
+});
+menuOverlay.addEventListener("click", (e) => {
+  if (e.target === menuOverlay) {
+    triggerHaptic();
+    menuOverlay.style.display = "none";
+  }
+});
+document.getElementById("menu-reset").addEventListener("click", async () => {
+  triggerHapticError();
+  await set("glof", null);
+  location.reload();
+});
 
 function updateAndDrawParticles() {
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -459,6 +504,11 @@ function getTerrainAngle(x) {
 
 function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
+  if (isMobile() && !isLandscape()) {
+    orientationWarning.style.display = "flex";
+    return;
+  }
+  orientationWarning.style.display = "none";
   if (!lastFrameTime) {
     lastFrameTime = timestamp;
     return;
@@ -517,16 +567,16 @@ function gameLoop(timestamp) {
       });
     }
 
-    if (isOnGround && speed < 0.3) {
+    if (isOnGround && speed < 0.3 && gameState !== "IN_HOLE") {
       gameState = "AIMING";
       ball.vx = 0;
       ball.vy = 0;
       ball.y = getTerrainY(ball.x) - ball.radius;
+      saveState({ includeBall: true });
     }
   } else if (gameState === "IN_HOLE") {
     ball.vy += GRAVITY * 1.5 * dt_scaler;
     ball.y += ball.vy * dt_scaler;
-    ball.x = ball.x * 0.95 + (hole.x + hole.width / 2) * 0.05;
     if (ball.y > hole.y + hole.depth) startNextLevel();
   }
 
@@ -574,6 +624,7 @@ function handleEnd(event) {
   currentAimPos = null;
   if (dist < 10) return;
 
+  triggerHaptic();
   strokes++;
   totalStrokes++;
   updateUI();
@@ -586,105 +637,53 @@ function handleEnd(event) {
 }
 
 function drawSaguaro(ctx, x, y, scale, color = "#4a6341", seed = 1) {
-  const random = createSeededRandom(seed);
+  const rng = createSeededRandom(seed);
 
   ctx.save();
   ctx.translate(x, y);
   ctx.scale(scale, -scale);
 
-  const trunkWidth = 18;
-  const trunkHeight = 100 + random() * 40;
-  const mainColor = color;
-  const ribColor = "rgba(0,0,0,0.15)";
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
-  const armConfiguration = Math.floor(random() * 4);
-  const hasLeftArm = armConfiguration === 1 || armConfiguration === 3;
-  const hasRightArm = armConfiguration === 2 || armConfiguration === 3;
+  const trunkH = 80 + rng() * 40;
+  const trunkW = 14;
+  const armW = 10;
+  const hasRight = rng() < 0.8;
+  const hasLeft = rng() < 0.8;
 
-  ctx.fillStyle = mainColor;
-  ctx.lineWidth = 2;
-
-  // Right Arm
-  if (hasRightArm) {
-    const armWidth = 12 + random() * 5;
-    const armStartY = trunkHeight * (0.25 + random() * 0.4);
-    const armBendX = 15 + random() * 20;
-    const armTopY = armStartY + trunkHeight * 0.4 + random() * 30;
+  // Arms drawn first so trunk covers the junction
+  if (hasRight) {
+    const armY = trunkH * (0.3 + rng() * 0.25);
+    const armOutX = trunkW / 2 + 16 + rng() * 18;
+    const armTopY = armY + 22 + rng() * (trunkH * 0.35);
+    ctx.lineWidth = armW;
     ctx.beginPath();
-    ctx.moveTo(trunkWidth / 2, armStartY - armWidth);
-    ctx.quadraticCurveTo(
-      trunkWidth / 2 + armBendX,
-      armStartY - armWidth,
-      trunkWidth / 2 + armBendX,
-      armStartY,
-    );
-    ctx.lineTo(trunkWidth / 2 + armBendX, armTopY);
-    ctx.arc(
-      trunkWidth / 2 + armBendX - armWidth / 2,
-      armTopY,
-      armWidth / 2,
-      0,
-      Math.PI,
-    );
-    ctx.lineTo(trunkWidth / 2 + armBendX - armWidth, armStartY);
-    ctx.quadraticCurveTo(trunkWidth / 2, armStartY, trunkWidth / 2, armStartY);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Left Arm (Corrected)
-  if (hasLeftArm) {
-    const armWidth = 12 + random() * 5;
-    const armStartY = trunkHeight * (0.3 + random() * 0.4);
-    const armBendX = 15 + random() * 20;
-    const armTopY = armStartY + trunkHeight * 0.35 + random() * 30;
-    ctx.beginPath();
-    ctx.moveTo(-trunkWidth / 2, armStartY - armWidth);
-    ctx.quadraticCurveTo(
-      -trunkWidth / 2 - armBendX,
-      armStartY - armWidth,
-      -trunkWidth / 2 - armBendX,
-      armStartY,
-    );
-    ctx.lineTo(-trunkWidth / 2 - armBendX, armTopY);
-    // This arc was the source of the bug. The start and end angles were swapped.
-    ctx.arc(
-      -trunkWidth / 2 - armBendX + armWidth / 2,
-      armTopY,
-      armWidth / 2,
-      Math.PI,
-      0,
-    );
-    ctx.lineTo(-trunkWidth / 2 - armBendX + armWidth, armStartY);
-    ctx.quadraticCurveTo(
-      -trunkWidth / 2,
-      armStartY,
-      -trunkWidth / 2,
-      armStartY,
-    );
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  // Trunk
-  ctx.beginPath();
-  ctx.moveTo(-trunkWidth / 2, 0);
-  ctx.lineTo(-trunkWidth / 2, trunkHeight);
-  ctx.arc(0, trunkHeight, trunkWidth / 2, Math.PI, 0);
-  ctx.lineTo(trunkWidth / 2, 0);
-  ctx.closePath();
-  ctx.fill();
-
-  // Ribs
-  ctx.strokeStyle = ribColor;
-  const numRibs = 4;
-  for (let i = 1; i <= numRibs; i++) {
-    const xPos = -trunkWidth / 2 + (trunkWidth * i) / (numRibs + 1);
-    ctx.beginPath();
-    ctx.moveTo(xPos, 5);
-    ctx.lineTo(xPos, trunkHeight);
+    ctx.moveTo(trunkW / 2 - 2, armY);
+    ctx.lineTo(armOutX, armY);
+    ctx.lineTo(armOutX, armTopY);
     ctx.stroke();
   }
+
+  if (hasLeft) {
+    const armY = trunkH * (0.3 + rng() * 0.25);
+    const armOutX = -(trunkW / 2 + 16 + rng() * 18);
+    const armTopY = armY + 22 + rng() * (trunkH * 0.35);
+    ctx.lineWidth = armW;
+    ctx.beginPath();
+    ctx.moveTo(-trunkW / 2 + 2, armY);
+    ctx.lineTo(armOutX, armY);
+    ctx.lineTo(armOutX, armTopY);
+    ctx.stroke();
+  }
+
+  // Trunk on top
+  ctx.lineWidth = trunkW;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(0, trunkH);
+  ctx.stroke();
 
   ctx.restore();
 }
@@ -698,6 +697,14 @@ canvas.addEventListener("touchend", handleEnd, { passive: false });
 canvas.addEventListener("touchcancel", handleEnd, { passive: false });
 window.addEventListener("resize", resizeCanvas);
 
-resizeCanvas();
-updateUI();
-requestAnimationFrame(gameLoop);
+loadState().then((saved) => {
+  initHaptic();
+  resizeCanvas();
+  if (saved?.ballX != null) {
+    ball.x = saved.ballX;
+    ball.y = saved.ballY;
+    strokes = saved.strokes;
+  }
+  updateUI();
+  requestAnimationFrame(gameLoop);
+});

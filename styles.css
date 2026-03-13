@@ -26,15 +26,73 @@ canvas {
 }
 #info-panel {
   position: absolute;
-  top: 20px;
+  top: 16px;
   left: 50%;
   transform: translateX(-50%);
-  background-color: rgba(0, 0, 0, 0.5);
-  padding: 10px 20px;
-  border-radius: 10px;
+  background-color: rgba(0, 0, 0, 0.45);
+  padding: 6px 14px;
+  border-radius: 8px;
   text-align: center;
-  font-size: 1.5em;
+  font-size: 0.7rem;
   z-index: 10;
+  cursor: pointer;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+#menu-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  justify-content: center;
+  align-items: center;
+}
+#menu {
+  background: #1a1a1a;
+  border-radius: 12px;
+  padding: 28px 36px;
+  color: #f0e8d8;
+  font-family: "Monoid", Courier, monospace;
+  text-align: center;
+  min-width: 180px;
+  letter-spacing: 1px;
+}
+#menu p {
+  margin: 8px 0;
+  font-size: 0.8rem;
+}
+#menu-reset {
+  margin-top: 20px;
+  padding: 8px 18px;
+  background: #8b2a1a;
+  color: #f0e8d8;
+  border: none;
+  border-radius: 6px;
+  font-family: "Monoid", Courier, monospace;
+  font-size: 0.7rem;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+#orientation-warning {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: #1a1a1a;
+  z-index: 99999;
+  justify-content: center;
+  align-items: center;
+  font-family: "Monoid", Courier, monospace;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 1.2rem;
+  color: #f0e8d8;
+  letter-spacing: 2px;
+}
+#orientation-warning p { margin: 0; }
+#orientation-title {
+  font-size: 0.75rem;
+  color: rgba(240, 232, 216, 0.4);
 }
 #transition-overlay {
   position: absolute;
