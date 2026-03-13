@@ -7,10 +7,13 @@ const orientationWarning = document.getElementById("orientation-warning");
 const menuOverlay = document.getElementById("menu-overlay");
 
 function isMobile() {
-  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent,
+  );
 }
 function isLandscape() {
-  if (window.screen.orientation) return window.screen.orientation.type.includes("landscape");
+  if (window.screen.orientation)
+    return window.screen.orientation.type.includes("landscape");
   return window.innerWidth > window.innerHeight;
 }
 const MASTER_SEED = 42;
@@ -29,7 +32,16 @@ const HOLE_WIDTH = 16;
 const HOLE_DEPTH = 20;
 
 let gameWidth, gameHeight;
-let ball, terrain, hole, waterHazards, particles, cacti, boulders, deadTrees, mesas;
+let ball,
+  terrain,
+  hole,
+  waterHazards,
+  particles,
+  cacti,
+  boulders,
+  deadTrees,
+  mesas,
+  skulls;
 let backgroundCanvas, backgroundCtx;
 let lastBallPosition = { x: 0, y: 0 };
 let lastFrameTime = 0;
@@ -83,6 +95,7 @@ function generateLevel() {
   boulders = [];
   deadTrees = [];
   mesas = [];
+  skulls = [];
 
   const segments = 8 + Math.floor(random() * 6);
   let lastY = gameHeight * (0.7 + random() * 0.2);
@@ -166,28 +179,32 @@ function generateLevel() {
 
   const cactusRng = createSeededRandom(MASTER_SEED + holeNumber + 1000);
   if (cactusRng() < 0.01) {
-  let attempts = 0;
-  while (cacti.length === 0 && attempts < 50) {
-    attempts++;
-    const x = gameWidth * (0.15 + cactusRng() * 0.7);
-    if (Math.abs(x - hole.x) < 60 || Math.abs(x - startX) < 80) continue;
-    let isInWater = false;
-    for (const water of waterHazards) {
-      if (x > water.x1 - 20 && x < water.x2 + 20) { isInWater = true; break; }
+    let attempts = 0;
+    while (cacti.length === 0 && attempts < 50) {
+      attempts++;
+      const x = gameWidth * (0.15 + cactusRng() * 0.7);
+      if (Math.abs(x - hole.x) < 60 || Math.abs(x - startX) < 80) continue;
+      let isInWater = false;
+      for (const water of waterHazards) {
+        if (x > water.x1 - 20 && x < water.x2 + 20) {
+          isInWater = true;
+          break;
+        }
+      }
+      if (isInWater) continue;
+      const y = getTerrainY(x);
+      const scale = 0.4 + cactusRng() * 0.6;
+      const shade = 80 + Math.floor(scale * 80);
+      const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
+      cacti.push({ x, y, scale, color, seed: MASTER_SEED + holeNumber * 137 });
     }
-    if (isInWater) continue;
-    const y = getTerrainY(x);
-    const scale = 0.4 + cactusRng() * 0.6;
-    const shade = 80 + Math.floor(scale * 80);
-    const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
-    cacti.push({ x, y, scale, color, seed: MASTER_SEED + holeNumber * 137 });
-  }
   }
 
   // Boulder placement — flat segments only
   const flatForBoulders = [];
   for (let i = 0; i < terrain.length - 1; i++) {
-    const p1 = terrain[i], p2 = terrain[i + 1];
+    const p1 = terrain[i],
+      p2 = terrain[i + 1];
     if (Math.abs(p2.y - p1.y) < 6 && p2.x - p1.x > 40) {
       flatForBoulders.push(p1);
     }
@@ -197,47 +214,108 @@ function generateLevel() {
     let boulderAttempts = 0;
     while (boulders.length === 0 && boulderAttempts < 50) {
       boulderAttempts++;
-      const seg = flatForBoulders[Math.floor(boulderRng() * flatForBoulders.length)];
-      const x = seg.x + boulderRng() * (terrain[terrain.indexOf(seg) + 1].x - seg.x);
+      const seg =
+        flatForBoulders[Math.floor(boulderRng() * flatForBoulders.length)];
+      const x =
+        seg.x + boulderRng() * (terrain[terrain.indexOf(seg) + 1].x - seg.x);
       if (Math.abs(x - hole.x) < 50 || Math.abs(x - startX) < 60) continue;
       let isInWater = false;
       for (const w of waterHazards) {
-        if (x > w.x1 - 15 && x < w.x2 + 15) { isInWater = true; break; }
+        if (x > w.x1 - 15 && x < w.x2 + 15) {
+          isInWater = true;
+          break;
+        }
       }
       if (isInWater) continue;
       const scale = 0.3 + boulderRng() * 0.4;
-      boulders.push({ x, y: getTerrainY(x), scale, seed: MASTER_SEED + holeNumber * 97 });
+      boulders.push({
+        x,
+        y: getTerrainY(x),
+        scale,
+        seed: MASTER_SEED + holeNumber * 97,
+      });
     }
   }
 
   // Dead tree placement
   const treeRng = createSeededRandom(MASTER_SEED + holeNumber + 3000);
   if (treeRng() < 0.005) {
-  let treeAttempts = 0;
-  while (deadTrees.length === 0 && treeAttempts < 50) {
-    treeAttempts++;
-    const x = gameWidth * (0.1 + treeRng() * 0.8);
-    if (Math.abs(x - hole.x) < 50 || Math.abs(x - startX) < 60) continue;
-    if (boulders.length > 0 && Math.abs(x - boulders[0].x) < 60) continue;
-    let isInWater = false;
-    for (const w of waterHazards) {
-      if (x > w.x1 - 15 && x < w.x2 + 15) { isInWater = true; break; }
+    let treeAttempts = 0;
+    while (deadTrees.length === 0 && treeAttempts < 50) {
+      treeAttempts++;
+      const x = gameWidth * (0.1 + treeRng() * 0.8);
+      if (Math.abs(x - hole.x) < 50 || Math.abs(x - startX) < 60) continue;
+      if (boulders.length > 0 && Math.abs(x - boulders[0].x) < 60) continue;
+      let isInWater = false;
+      for (const w of waterHazards) {
+        if (x > w.x1 - 15 && x < w.x2 + 15) {
+          isInWater = true;
+          break;
+        }
+      }
+      if (isInWater) continue;
+      const scale = 0.4 + treeRng() * 0.5;
+      deadTrees.push({
+        x,
+        y: getTerrainY(x),
+        scale,
+        seed: MASTER_SEED + holeNumber * 113,
+      });
     }
-    if (isInWater) continue;
-    const scale = 0.4 + treeRng() * 0.5;
-    deadTrees.push({ x, y: getTerrainY(x), scale, seed: MASTER_SEED + holeNumber * 113 });
-  }
   }
 
   // Mesa placement
   const mesaRng = createSeededRandom(MASTER_SEED + holeNumber + 4000);
-  if (mesaRng() < 0.015) mesas.push({
-    x: gameWidth * (0.2 + mesaRng() * 0.6),
-    topY: gameHeight * (0.38 + mesaRng() * 0.15),
-    width: gameWidth * (0.25 + mesaRng() * 0.25),
-    height: gameHeight * (0.12 + mesaRng() * 0.08),
-    seed: MASTER_SEED + holeNumber * 71,
-  });
+  if (mesaRng() < 0.015)
+    mesas.push({
+      x: gameWidth * (0.2 + mesaRng() * 0.6),
+      topY: gameHeight * (0.38 + mesaRng() * 0.15),
+      width: gameWidth * (0.25 + mesaRng() * 0.25),
+      height: gameHeight * (0.12 + mesaRng() * 0.08),
+      seed: MASTER_SEED + holeNumber * 71,
+    });
+
+  // Skull placement — nearest flat segment to hole (centering forced for now)
+  const skullRng = createSeededRandom(MASTER_SEED + holeNumber + 5000);
+  if (holeNumber === 100 || holeNumber % 500 === 0) {
+    const flatSegs = [];
+    for (let i = 0; i < terrain.length - 1; i++) {
+      const p1 = terrain[i],
+        p2 = terrain[i + 1];
+      if (Math.abs(p2.y - p1.y) < 6 && p2.x - p1.x > 30) flatSegs.push(p1);
+    }
+    flatSegs.sort((a, b) => {
+      const ai = terrain.indexOf(a),
+        bi = terrain.indexOf(b);
+      const amidX = (a.x + terrain[ai + 1].x) / 2;
+      const bmidX = (b.x + terrain[bi + 1].x) / 2;
+      return Math.abs(amidX - hole.x) - Math.abs(bmidX - hole.x);
+    });
+    for (const seg of flatSegs) {
+      console.log(flatSegs);
+      const segIdx = terrain.indexOf(seg);
+      const x = seg.x + 0.5 * (terrain[segIdx + 1].x - seg.x);
+      console.log(x, hole.x, x, startX);
+      //if (Math.abs(x - hole.x) < 20 || Math.abs(x - startX) < 40) continue;
+      let isInWater = false;
+      for (const w of waterHazards) {
+        if (x > w.x1 - 15 && x < w.x2 + 15) {
+          isInWater = true;
+          break;
+        }
+      }
+      if (isInWater) continue;
+      const scale = 0.6 + skullRng() * 0.4;
+      skulls.push({
+        x,
+        y: getTerrainY(x),
+        scale,
+        seed: MASTER_SEED + holeNumber * 59,
+      });
+      console.log(skulls);
+      break;
+    }
+  }
 
   drawBackgroundLayer();
   ball = new Ball(startX, getTerrainY(startX) - BALL_RADIUS);
@@ -290,17 +368,28 @@ function drawBoulder(ctx, x, y, scale, seed) {
   for (let i = 0; i < numPts; i++) {
     const angle = (i / numPts) * Math.PI * 2 - Math.PI / 2;
     const r = 0.78 + rng() * 0.44;
-    pts.push({ x: cx + Math.cos(angle) * rx * r, y: cy + Math.sin(angle) * ry * r });
+    pts.push({
+      x: cx + Math.cos(angle) * rx * r,
+      y: cy + Math.sin(angle) * ry * r,
+    });
   }
   // Washed-out sandy tone to blend with background
   const base = 118 + Math.floor(rng() * 22);
   ctx.fillStyle = `rgb(${base + 5}, ${base - 3}, ${base - 14})`;
   ctx.beginPath();
-  const start = { x: (pts[0].x + pts[numPts - 1].x) / 2, y: (pts[0].y + pts[numPts - 1].y) / 2 };
+  const start = {
+    x: (pts[0].x + pts[numPts - 1].x) / 2,
+    y: (pts[0].y + pts[numPts - 1].y) / 2,
+  };
   ctx.moveTo(start.x, start.y);
   for (let i = 0; i < numPts; i++) {
     const next = pts[(i + 1) % numPts];
-    ctx.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + next.x) / 2, (pts[i].y + next.y) / 2);
+    ctx.quadraticCurveTo(
+      pts[i].x,
+      pts[i].y,
+      (pts[i].x + next.x) / 2,
+      (pts[i].y + next.y) / 2,
+    );
   }
   ctx.closePath();
   ctx.fill();
@@ -321,7 +410,10 @@ function drawMesa(ctx, x, topY, width, height, seed) {
   const topPts = [{ x: x - width / 2, y: topY }];
   const steps = 2 + Math.floor(rng() * 3);
   for (let i = 1; i < steps; i++) {
-    topPts.push({ x: x - width / 2 + (width * i) / steps, y: topY + rng() * height * 0.07 });
+    topPts.push({
+      x: x - width / 2 + (width * i) / steps,
+      y: topY + rng() * height * 0.07,
+    });
   }
   topPts.push({ x: x + width / 2, y: topY });
   ctx.beginPath();
@@ -353,21 +445,152 @@ function drawDeadTree(ctx, x, y, scale, seed) {
     const r = rng();
     if (r < 0.15) {
       // single continuation — bent
-      branch(ex, ey, angle + (rng() - 0.5) * 0.7, len * (0.55 + rng() * 0.2), width * 0.72, depth - 1);
+      branch(
+        ex,
+        ey,
+        angle + (rng() - 0.5) * 0.7,
+        len * (0.55 + rng() * 0.2),
+        width * 0.72,
+        depth - 1,
+      );
     } else if (r < 0.75) {
       // two branches — asymmetric spreads
-      branch(ex, ey, angle - (0.28 + rng() * 0.55), len * (0.45 + rng() * 0.28), width * 0.6, depth - 1);
-      branch(ex, ey, angle + (0.22 + rng() * 0.55), len * (0.42 + rng() * 0.28), width * 0.58, depth - 1);
+      branch(
+        ex,
+        ey,
+        angle - (0.28 + rng() * 0.55),
+        len * (0.45 + rng() * 0.28),
+        width * 0.6,
+        depth - 1,
+      );
+      branch(
+        ex,
+        ey,
+        angle + (0.22 + rng() * 0.55),
+        len * (0.42 + rng() * 0.28),
+        width * 0.58,
+        depth - 1,
+      );
     } else {
       // three branches
       const s = 0.32 + rng() * 0.28;
-      branch(ex, ey, angle - s - rng() * 0.2, len * (0.38 + rng() * 0.22), width * 0.55, depth - 1);
-      branch(ex, ey, angle + (rng() - 0.5) * 0.35, len * (0.42 + rng() * 0.2), width * 0.55, depth - 1);
-      branch(ex, ey, angle + s + rng() * 0.2, len * (0.38 + rng() * 0.22), width * 0.52, depth - 1);
+      branch(
+        ex,
+        ey,
+        angle - s - rng() * 0.2,
+        len * (0.38 + rng() * 0.22),
+        width * 0.55,
+        depth - 1,
+      );
+      branch(
+        ex,
+        ey,
+        angle + (rng() - 0.5) * 0.35,
+        len * (0.42 + rng() * 0.2),
+        width * 0.55,
+        depth - 1,
+      );
+      branch(
+        ex,
+        ey,
+        angle + s + rng() * 0.2,
+        len * (0.38 + rng() * 0.22),
+        width * 0.52,
+        depth - 1,
+      );
     }
   }
   const lean = (rng() - 0.5) * 0.28;
   branch(x, y, -Math.PI / 2 + lean, 28 + rng() * 14, 2.5 * scale, 4);
+  ctx.restore();
+}
+
+function drawCowSkull(ctx, x, y, scale, seed) {
+  const rng = createSeededRandom(seed);
+  ctx.save();
+
+  ctx.translate(x, y);
+  ctx.rotate(rng());
+  const W = 20 * scale; // half-width at cheeks
+  const H = 24 * scale; // full height from snout base to cranium top
+  const bone = 210 + Math.floor(rng() * 20);
+  const boneColor = `rgb(${bone + 15}, ${bone + 8}, ${bone - 18})`;
+
+  // Horns — emerge from upper skull, curve outward and upward
+  const hornReach = (28 + rng() * 18) * scale;
+  const hornLift = (18 + rng() * 14) * scale;
+  ctx.strokeStyle = boneColor;
+  ctx.lineWidth = 5 * scale;
+  ctx.lineCap = "round";
+
+  ctx.beginPath();
+  ctx.moveTo(-W * 0.65, -H * 0.88);
+  ctx.quadraticCurveTo(
+    -W * 0.65 - hornReach * 0.5,
+    -H - hornLift * 0.4,
+    -W * 0.65 - hornReach,
+    -H + hornLift * 0.2,
+  );
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(W * 0.65, -H * 0.88);
+  ctx.quadraticCurveTo(
+    W * 0.65 + hornReach * 0.5,
+    -H - hornLift * 0.4,
+    W * 0.65 + hornReach,
+    -H + hornLift * 0.2,
+  );
+  ctx.stroke();
+
+  // Skull body — wide cranium, prominent cheekbones, long snout
+  ctx.fillStyle = boneColor;
+  ctx.beginPath();
+  ctx.moveTo(0, 0); // snout tip
+  ctx.bezierCurveTo(
+    -W * 0.45,
+    -H * 0.05,
+    -W * 1.15,
+    -H * 0.28,
+    -W * 1.05,
+    -H * 0.58,
+  );
+  ctx.bezierCurveTo(-W * 0.95, -H * 0.88, -W * 0.55, -H, 0, -H);
+  ctx.bezierCurveTo(W * 0.55, -H, W * 0.95, -H * 0.88, W * 1.05, -H * 0.58);
+  ctx.bezierCurveTo(W * 1.15, -H * 0.28, W * 0.45, -H * 0.05, 0, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Eye sockets
+  const eyeRx = 6.5 * scale;
+  const eyeRy = 8 * scale;
+  const eyeX = W * 0.42;
+  const eyeY = -H * 0.62;
+  ctx.fillStyle = "rgba(25, 15, 5, 0.85)";
+  ctx.beginPath();
+  ctx.ellipse(-eyeX, eyeY, eyeRx, eyeRy, -0.15, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(eyeX, eyeY, eyeRx, eyeRy, 0.15, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Nasal cavity — two teardrop ovals
+  ctx.fillStyle = "rgba(25, 15, 5, 0.65)";
+  ctx.beginPath();
+  ctx.ellipse(
+    -W * 0.14,
+    -H * 0.22,
+    3.5 * scale,
+    5.5 * scale,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(W * 0.14, -H * 0.22, 3.5 * scale, 5.5 * scale, 0, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.restore();
 }
 
@@ -380,13 +603,20 @@ function drawBackgroundLayer() {
   backgroundCtx.fillRect(0, 0, gameWidth, gameHeight);
 
   // Draw Mesas
-  for (const m of mesas) drawMesa(backgroundCtx, m.x, m.topY, m.width, m.height, m.seed);
+  for (const m of mesas)
+    drawMesa(backgroundCtx, m.x, m.topY, m.width, m.height, m.seed);
 
   // Draw Boulders
-  for (const b of boulders) drawBoulder(backgroundCtx, b.x, b.y, b.scale, b.seed);
+  for (const b of boulders)
+    drawBoulder(backgroundCtx, b.x, b.y, b.scale, b.seed);
+
+  // Draw Cow Skulls
+  for (const s of skulls)
+    drawCowSkull(backgroundCtx, s.x, s.y, 0.3 * s.scale, s.seed);
 
   // Draw Dead Trees
-  for (const t of deadTrees) drawDeadTree(backgroundCtx, t.x, t.y, t.scale, t.seed);
+  for (const t of deadTrees)
+    drawDeadTree(backgroundCtx, t.x, t.y, t.scale, t.seed);
 
   // Draw Cacti
   for (const cactus of cacti) {
@@ -563,8 +793,12 @@ function updateUI() {
 
 async function saveState({ includeBall = false } = {}) {
   await set("glof", {
-    holeNumber, totalStrokes, holesInOne, strokes,
-    ballsInWater, ballsOutOfBounds,
+    holeNumber,
+    totalStrokes,
+    holesInOne,
+    strokes,
+    ballsInWater,
+    ballsOutOfBounds,
     ballX: includeBall ? ball.x / gameWidth : null,
   });
 }
@@ -582,10 +816,14 @@ async function loadState() {
 
 function showMenu() {
   document.getElementById("menu-hole").textContent = `hole ${holeNumber}`;
-  document.getElementById("menu-total").textContent = `total strokes: ${totalStrokes}`;
-  document.getElementById("menu-hio").textContent = `holes in one: ${holesInOne}`;
-  document.getElementById("menu-water").textContent = `balls in water: ${ballsInWater}`;
-  document.getElementById("menu-oob").textContent = `out of bounds: ${ballsOutOfBounds}`;
+  document.getElementById("menu-total").textContent =
+    `total strokes: ${totalStrokes}`;
+  document.getElementById("menu-hio").textContent =
+    `holes in one: ${holesInOne}`;
+  document.getElementById("menu-water").textContent =
+    `balls in water: ${ballsInWater}`;
+  document.getElementById("menu-oob").textContent =
+    `out of bounds: ${ballsOutOfBounds}`;
   menuOverlay.style.display = "flex";
 }
 

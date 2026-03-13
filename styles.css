@@ -89,7 +89,9 @@ canvas {
   color: #f0e8d8;
   letter-spacing: 2px;
 }
-#orientation-warning p { margin: 0; }
+#orientation-warning p {
+  margin: 0;
+}
 #orientation-title {
   font-size: 0.75rem;
   color: rgba(240, 232, 216, 0.4);
