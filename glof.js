@@ -39,6 +39,8 @@ let strokes = 0;
 let totalStrokes = 0;
 let holeNumber = 1;
 let holesInOne = 0;
+let ballsInWater = 0;
+let ballsOutOfBounds = 0;
 let aimStartPos = null;
 let currentAimPos = null;
 
@@ -176,6 +178,7 @@ function generateLevel() {
     const shade = 80 + Math.floor(scale * 80);
     const color = `rgb(${shade - 20}, ${shade}, ${shade - 30})`;
     cacti.push({ x, y, scale, color, seed: MASTER_SEED + holeNumber * 137 });
+  }
   }
   drawBackgroundLayer();
   ball = new Ball(startX, getTerrainY(startX) - BALL_RADIUS);
@@ -329,6 +332,7 @@ function handleCollisions() {
       ball.y + ball.radius > water.y
     ) {
       createSplash(ball.x, water.y);
+      ballsInWater++;
       applyPenaltyAndReset();
       return;
     }
@@ -371,6 +375,7 @@ function handleCollisions() {
     ball.x < -ball.radius ||
     ball.x > gameWidth + ball.radius
   ) {
+    ballsOutOfBounds++;
     applyPenaltyAndReset();
     return;
   }
@@ -397,6 +402,7 @@ function updateUI() {
 async function saveState({ includeBall = false } = {}) {
   await set("glof", {
     holeNumber, totalStrokes, holesInOne, strokes,
+    ballsInWater, ballsOutOfBounds,
     ballX: includeBall ? ball.x : null,
     ballY: includeBall ? ball.y : null,
   });
@@ -408,6 +414,8 @@ async function loadState() {
   holeNumber = saved.holeNumber || 1;
   totalStrokes = saved.totalStrokes || 0;
   holesInOne = saved.holesInOne || 0;
+  ballsInWater = saved.ballsInWater || 0;
+  ballsOutOfBounds = saved.ballsOutOfBounds || 0;
   return { strokes: saved.strokes || 0, ballX: saved.ballX, ballY: saved.ballY };
 }
 
@@ -415,6 +423,8 @@ function showMenu() {
   document.getElementById("menu-hole").textContent = `hole ${holeNumber}`;
   document.getElementById("menu-total").textContent = `total strokes: ${totalStrokes}`;
   document.getElementById("menu-hio").textContent = `holes in one: ${holesInOne}`;
+  document.getElementById("menu-water").textContent = `balls in water: ${ballsInWater}`;
+  document.getElementById("menu-oob").textContent = `out of bounds: ${ballsOutOfBounds}`;
   menuOverlay.style.display = "flex";
 }
 
