@@ -23,7 +23,7 @@ const transitionOverlay = document.getElementById("transition-overlay");
 
 const GRAVITY = 0.15;
 const AIR_FRICTION = 0.995;
-const GROUND_FRICTION = 0.99;
+const GROUND_FRICTION = 0.985;
 const BOUNCE_DAMPING = 0.55;
 const POWER_MULTIPLIER = 0.09;
 const MAX_DRAG_RATIO = 0.15; // fraction of canvas width
@@ -730,20 +730,15 @@ function handleCollisions() {
     }
   }
 
-  if (
-    ball.x > hole.x &&
-    ball.x < hole.x + hole.width &&
-    ball.y + ball.radius > hole.y
-  ) {
-    const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-    if (speed < 8) {
-      if (strokes === 1) holesInOne++;
-      gameState = "IN_HOLE";
-      return;
-    }
+  const inHoleXRange = ball.x > hole.x && ball.x < hole.x + hole.width;
+
+  if (inHoleXRange && ball.y + ball.radius > hole.y) {
+    if (strokes === 1) holesInOne++;
+    gameState = "IN_HOLE";
+    return;
   }
 
-  const terrainY = getTerrainY(ball.x);
+  const terrainY = inHoleXRange ? Infinity : getTerrainY(ball.x);
   if (ball.y + ball.radius > terrainY) {
     ball.y = terrainY - ball.radius;
 
@@ -985,7 +980,7 @@ function gameLoop(timestamp) {
       saveState({ includeBall: true });
     }
   } else if (gameState === "IN_HOLE") {
-    ball.vy += GRAVITY * 1.5 * dt_scaler;
+    ball.vy += GRAVITY * dt_scaler;
     ball.y += ball.vy * dt_scaler;
     if (ball.y > hole.y + hole.depth) startNextLevel();
   }
@@ -1008,6 +1003,7 @@ function getEventPos(event) {
 function handleStart(event) {
   if (gameState !== "AIMING") return;
   event.preventDefault();
+  triggerHaptic();
   aimStartPos = getEventPos(event);
   currentAimPos = aimStartPos;
 }
@@ -1027,6 +1023,7 @@ function handleEnd(event) {
     currentAimPos = null;
     return;
   }
+  triggerHaptic();
   const dx = aimEndPos.x - aimStartPos.x;
   const dy = aimEndPos.y - aimStartPos.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
