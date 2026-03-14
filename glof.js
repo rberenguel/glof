@@ -637,10 +637,11 @@ function drawBackgroundLayer() {
   for (let i = 0; i < terrain.length; i++) {
     const p = terrain[i];
     if (i > 0 && p.x > hole.x && terrain[i - 1].x < hole.x) {
+      const holeRightY = getTerrainY(hole.x + hole.width);
       backgroundCtx.lineTo(hole.x, hole.y);
       backgroundCtx.lineTo(hole.x, hole.y + hole.depth);
       backgroundCtx.lineTo(hole.x + hole.width, hole.y + hole.depth);
-      backgroundCtx.lineTo(hole.x + hole.width, hole.y);
+      backgroundCtx.lineTo(hole.x + hole.width, holeRightY);
     }
     backgroundCtx.lineTo(p.x, p.y);
     const water = waterHazards.find((w) => w.x1 === p.x);
@@ -1104,6 +1105,16 @@ canvas.addEventListener("touchmove", handleMove, { passive: false });
 canvas.addEventListener("touchend", handleEnd, { passive: false });
 canvas.addEventListener("touchcancel", handleEnd, { passive: false });
 window.addEventListener("resize", resizeCanvas);
+
+window.glof = {
+  jump(n) {
+    holeNumber = Math.max(1, Math.floor(n));
+    strokes = 0;
+    generateLevel();
+    updateUI();
+    gameState = "AIMING";
+  },
+};
 
 loadState().then((saved) => {
   initHaptic();
